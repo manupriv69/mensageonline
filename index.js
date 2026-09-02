@@ -3,8 +3,12 @@ const { Telegraf } = require('telegraf');
 const OpenAI = require('openai');
 
 const openai = new OpenAI({
-  apiKey: process.env.XAI_API_KEY,
-  baseURL: 'https://api.x.ai/v1',
+  apiKey: process.env.OPENROUTER_API_KEY,
+  baseURL: 'https://openrouter.ai/api/v1',
+  defaultHeaders: {
+    'HTTP-Referer': 'https://github.com', // opcional
+    'X-Title': 'OFM Telegram Bot',
+  },
 });
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
@@ -25,20 +29,16 @@ Regras importantes:
 - Nunca diga que você é uma IA.
 - Responda de forma curta e natural, como se estivesse digitando no celular. Evite textos longos.`;
 
-// Função pra esperar
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Função pra dividir a resposta em partes naturais
 function splitMessage(text) {
-  // Quebra por pontuação + espaço, mas tenta manter natural
   const parts = text
     .split(/(?<=[.!?…])\s+/)
     .map(p => p.trim())
     .filter(p => p.length > 0);
 
-  // Se ficou muito fragmentado, junta um pouco
   if (parts.length > 4) {
     const result = [];
     let current = '';
@@ -61,7 +61,6 @@ bot.on('text', async (ctx) => {
   const chatId = ctx.chat.id;
   const userMessage = ctx.message.text;
 
-  // Inicializa conversa se não existir
   if (!conversations.has(chatId)) {
     conversations.set(chatId, [
       { role: 'system', content: SYSTEM_PROMPT }
@@ -72,38 +71,32 @@ bot.on('text', async (ctx) => {
   history.push({ role: 'user', content: userMessage });
 
   try {
-    // Mostra digitando enquanto pensa
     await ctx.sendChatAction('typing');
 
     const completion = await openai.chat.completions.create({
-      model: 'grok-4.5',
+      model: 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free', // modelo free + bem liberado
       messages: history,
       temperature: 0.95,
     });
 
     const fullReply = completion.choices[0].message.content.trim();
 
-    // Salva a resposta completa no histórico
     history.push({ role: 'assistant', content: fullReply });
 
-    // Limita histórico
     if (history.length > 22) {
       history.splice(1, 2);
     }
 
-    // Divide a resposta em várias mensagens
     const parts = splitMessage(fullReply);
 
     for (let i = 0; i < parts.length; i++) {
-      // Delay aleatório entre 5 e 15 segundos (exceto a primeira)
       if (i > 0) {
-        const delay = Math.floor(Math.random() * 10000) + 5000; // 5 a 15s
+        const delay = Math.floor(Math.random() * 10000) + 5000;
         await sleep(delay);
       }
 
-      // Mostra "digitando..."
       await ctx.sendChatAction('typing');
-      await sleep(1200); // pequeno delay pra parecer real
+      await sleep(1200);
 
       await ctx.reply(parts[i]);
     }
