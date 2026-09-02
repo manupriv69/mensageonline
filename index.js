@@ -74,7 +74,7 @@ bot.on('text', async (ctx) => {
     await ctx.sendChatAction('typing');
 
     const completion = await openai.chat.completions.create({
-      model: 'meta-llama/llama-3.3-70b-instruct:free',
+      model: 'google/gemma-4-31b-it:free',
       messages: history,
       temperature: 0.95,
     });
