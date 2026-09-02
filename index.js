@@ -2,10 +2,6 @@ require('dotenv').config();
 const { Telegraf } = require('telegraf');
 const OpenAI = require('openai');
 
-// ======================
-// CONFIGURAÇÃO
-// ======================
-
 const openai = new OpenAI({
   apiKey: process.env.XAI_API_KEY,
   baseURL: 'https://api.x.ai/v1',
@@ -13,46 +9,59 @@ const openai = new OpenAI({
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Memória temporária das conversas (Parte 2 vamos colocar no banco de dados)
+// Memória temporária das conversas
 const conversations = new Map();
 
-// ======================
-// PERSONA DA IA
-// ======================
-
-const SYSTEM_PROMPT = `Você é uma mulher safada, confiante, provocante e muito sedutora. 
-Você cria conteúdo adulto no OnlyFans e está conversando com um lead interessado no Telegram.
+const SYSTEM_PROMPT = `Você é uma mulher safada, confiante e muito sedutora. 
+Você trabalha com conteúdo adulto no OnlyFans e está conversando com um lead interessado.
 
 Regras importantes:
-- Fale SEMPRE em português brasileiro, de forma natural, gírias e tudo.
-- Seja flertadora, safada e use linguagem adulta sem medo (pode falar putaria).
+- Fale sempre em português brasileiro, de forma natural e bem safada.
+- Seja flertadora, provocante e use linguagem adulta sem medo.
 - Seu objetivo principal é gerar desejo e conduzir o lead para assinar seu OnlyFans ou conteúdo VIP.
-- Nunca diga que você é uma IA ou robô.
-- Fale como uma mulher real conversando no Telegram (mensagens curtas e médias, não textos enormes).
-- Vá aumentando o clima aos poucos.
-- Quando sentir que o lead está engajado, faça o pitch de venda de forma natural e safada.
-- Se o lead perguntar preço ou link, direcione de forma sedutora.`;
+- Não seja robótica. Fale como uma mulher de verdade conversando no Telegram.
+- Mantenha o clima quente e vá aumentando a tensão aos poucos.
+- Quando achar o momento certo, faça o pitch de venda de forma natural.
+- Nunca diga que você é uma IA.
+- Responda de forma curta e natural, como se estivesse digitando no celular. Evite textos longos.`;
 
-// ======================
-// COMANDOS E MENSAGENS
-// ======================
+// Função pra esperar
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
-bot.start(async (ctx) => {
-  const chatId = ctx.chat.id;
+// Função pra dividir a resposta em partes naturais
+function splitMessage(text) {
+  // Quebra por pontuação + espaço, mas tenta manter natural
+  const parts = text
+    .split(/(?<=[.!?…])\s+/)
+    .map(p => p.trim())
+    .filter(p => p.length > 0);
 
-  // Inicializa o histórico da conversa
-  conversations.set(chatId, [
-    { role: 'system', content: SYSTEM_PROMPT }
-  ]);
+  // Se ficou muito fragmentado, junta um pouco
+  if (parts.length > 4) {
+    const result = [];
+    let current = '';
+    for (const part of parts) {
+      if ((current + ' ' + part).length < 120) {
+        current = current ? current + ' ' + part : part;
+      } else {
+        if (current) result.push(current);
+        current = part;
+      }
+    }
+    if (current) result.push(current);
+    return result;
+  }
 
-  await ctx.reply('Oi amor... 😏\n\nFinalmente você apareceu.\nTava te esperando...');
-});
+  return parts.length > 0 ? parts : [text];
+}
 
 bot.on('text', async (ctx) => {
   const chatId = ctx.chat.id;
   const userMessage = ctx.message.text;
 
-  // Se ainda não tem histórico, cria
+  // Inicializa conversa se não existir
   if (!conversations.has(chatId)) {
     conversations.set(chatId, [
       { role: 'system', content: SYSTEM_PROMPT }
@@ -63,49 +72,50 @@ bot.on('text', async (ctx) => {
   history.push({ role: 'user', content: userMessage });
 
   try {
-    // Mostra "digitando..."
+    // Mostra digitando enquanto pensa
     await ctx.sendChatAction('typing');
 
     const completion = await openai.chat.completions.create({
       model: 'grok-4.5',
       messages: history,
-      temperature: 0.9,
-      max_tokens: 400,
+      temperature: 0.95,
     });
 
-    const reply = completion.choices[0].message.content;
+    const fullReply = completion.choices[0].message.content.trim();
 
-    // Salva a resposta no histórico
-    history.push({ role: 'assistant', content: reply });
+    // Salva a resposta completa no histórico
+    history.push({ role: 'assistant', content: fullReply });
 
-    // Limita o histórico para não ficar muito grande
+    // Limita histórico
     if (history.length > 22) {
-      // Mantém o system prompt + últimas mensagens
-      const system = history[0];
-      const recent = history.slice(-20);
-      conversations.set(chatId, [system, ...recent]);
+      history.splice(1, 2);
     }
 
-    await ctx.reply(reply);
+    // Divide a resposta em várias mensagens
+    const parts = splitMessage(fullReply);
+
+    for (let i = 0; i < parts.length; i++) {
+      // Delay aleatório entre 5 e 15 segundos (exceto a primeira)
+      if (i > 0) {
+        const delay = Math.floor(Math.random() * 10000) + 5000; // 5 a 15s
+        await sleep(delay);
+      }
+
+      // Mostra "digitando..."
+      await ctx.sendChatAction('typing');
+      await sleep(1200); // pequeno delay pra parecer real
+
+      await ctx.reply(parts[i]);
+    }
+
   } catch (error) {
-    console.error('Erro ao chamar a IA:', error.message);
-    await ctx.reply('Aff... deu um probleminha aqui 😅\nMe manda de novo?');
+    console.error('Erro na IA:', error.message);
+    await ctx.reply('aff... deu um probleminha aqui. Me manda de novo? 😏');
   }
 });
 
-// ======================
-// INICIAR BOT
-// ======================
+bot.launch();
+console.log('✅ Bot rodando com sucesso!');
 
-bot.launch()
-  .then(() => {
-    console.log('✅ Bot rodando com sucesso!');
-    console.log('Pode testar no Telegram agora.');
-  })
-  .catch((err) => {
-    console.error('Erro ao iniciar o bot:', err.message);
-  });
-
-// Parada limpa
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
