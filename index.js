@@ -6,7 +6,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
   baseURL: 'https://openrouter.ai/api/v1',
   defaultHeaders: {
-    'HTTP-Referer': 'https://github.com', // opcional
+    'HTTP-Referer': 'https://github.com',
     'X-Title': 'OFM Telegram Bot',
   },
 });
@@ -74,7 +74,7 @@ bot.on('text', async (ctx) => {
     await ctx.sendChatAction('typing');
 
     const completion = await openai.chat.completions.create({
-      model: 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free', // modelo free + bem liberado
+      model: 'meta-llama/llama-3.3-70b-instruct:free',
       messages: history,
       temperature: 0.95,
     });
