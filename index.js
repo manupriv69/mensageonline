@@ -18,10 +18,11 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 const MAX_HOURS_PER_DAY = 9;
 const MAX_SECONDS_PER_DAY = MAX_HOURS_PER_DAY * 3600;
 const PAUSE_THRESHOLD = 15 * 60; // 15 minutos sem responder = pausa o contador
+const SLEEP_COOLDOWN_HOURS = 3; // Depois de mandar desculpa, só volta depois de 3 horas
 
 // Memória das conversas + controle de tempo
 const conversations = new Map();
-const userStats = new Map(); // controla tempo ativo e modo soneca
+const userStats = new Map();
 
 // ==================== DESCULPAS ====================
 const excuses = {
@@ -88,7 +89,7 @@ function getRandomExcuse() {
 
 function getTodayDateString() {
   const now = getBrasiliaTime();
-  return now.toISOString().split("T")[0]; // YYYY-MM-DD
+  return now.toISOString().split("T")[0];
 }
 
 function sleep(ms) {
@@ -124,52 +125,59 @@ bot.on("text", async (ctx) => {
   const userMessage = ctx.message.text;
   const now = getBrasiliaTime();
   const today = getTodayDateString();
+  const nowTimestamp = now.getTime();
 
-  // Inicializa stats do usuário se não existir
+  // Inicializa stats do usuário
   if (!userStats.has(chatId)) {
     userStats.set(chatId, {
       activeSeconds: 0,
-      lastInteraction: now.getTime(),
+      lastInteraction: nowTimestamp,
       date: today,
-      isSleeping: false
+      isSleeping: false,
+      sleepUntil: 0
     });
   }
 
   const stats = userStats.get(chatId);
 
-  // Se mudou o dia, reseta tudo
+  // Se mudou o dia, reseta
   if (stats.date !== today) {
     stats.activeSeconds = 0;
     stats.date = today;
     stats.isSleeping = false;
+    stats.sleepUntil = 0;
   }
 
-  // Calcula tempo ativo desde a última interação
-  const timeSinceLast = (now.getTime() - stats.lastInteraction) / 1000;
+  // Se ainda está no período de cooldown da desculpa
+  if (stats.sleepUntil && nowTimestamp < stats.sleepUntil) {
+    // Não responde nada (ou pode mandar uma mensagem bem curta se quiser)
+    return;
+  }
 
-  // Só conta o tempo se a pausa for menor que o threshold (15 min)
+  // Calcula tempo ativo
+  const timeSinceLast = (nowTimestamp - stats.lastInteraction) / 1000;
+
   if (timeSinceLast < PAUSE_THRESHOLD) {
     stats.activeSeconds += timeSinceLast;
   }
 
-  // Atualiza última interação
-  stats.lastInteraction = now.getTime();
+  stats.lastInteraction = nowTimestamp;
 
-  // Se já está em modo soneca hoje
+  // Se já está em modo soneca
   if (stats.isSleeping) {
-    await ctx.reply("Amor, ainda tô resolvendo umas coisas aqui... depois a gente se fala 😘");
-    return;
+    return; // não responde mais até o cooldown acabar ou virar o dia
   }
 
-  // Verifica se bateu o limite de 9 horas
+  // Verifica limite de 9 horas
   if (stats.activeSeconds >= MAX_SECONDS_PER_DAY) {
     stats.isSleeping = true;
+    stats.sleepUntil = nowTimestamp + (SLEEP_COOLDOWN_HOURS * 60 * 60 * 1000); // +3 horas
     const excuse = getRandomExcuse();
     await ctx.reply(excuse);
     return;
   }
 
-  // ==================== CONTINUA COM A IA ====================
+  // ==================== IA ====================
   if (!conversations.has(chatId)) {
     conversations.set(chatId, [
       {
@@ -213,18 +221,24 @@ Regras importantes:
 
     for (let i = 0; i < parts.length; i++) {
       if (i > 0) {
-        const delay = Math.floor(Math.random() * 10000) + 5000;
+        // Delay maior entre mensagens (8 a 18 segundos)
+        const delay = Math.floor(Math.random() * 10000) + 8000;
         await sleep(delay);
       }
+
+      // Tempo de digitando maior
       await ctx.sendChatAction("typing");
-      await sleep(1200);
+      await sleep(2500); // 2.5 segundos digitando
+
       await ctx.reply(parts[i]);
     }
 
   } catch (error) {
     console.error("Erro na IA:", error.message);
 
-    // Em vez de mensagem de erro robótica, manda uma desculpa humana
+    // Manda desculpa e entra em cooldown
+    stats.isSleeping = true;
+    stats.sleepUntil = nowTimestamp + (SLEEP_COOLDOWN_HOURS * 60 * 60 * 1000);
     const excuse = getRandomExcuse();
     await ctx.reply(excuse);
   }
